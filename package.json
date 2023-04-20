@@ -27,7 +27,7 @@
     "build:dist": "node ./scripts/build.js ./lib/browser.js ./LICENSE.md ./dist/twilio.js",
     "build:dist-min": "uglifyjs ./dist/twilio.js -o ./dist/twilio.min.js --comments \"/^! twilio-voice.js/\" -b beautify=false,ascii_only=true",
     "build:release": "npm-run-all lint build test:es5 status",
-    "build:ts": "./node_modules/typescript/bin/tsc",
+    "build:ts": "tsc",
     "build:constants": "node ./scripts/constants.js",
     "clean": "rimraf ./coverage ./dist ./es5",
     "coverage": "nyc ./node_modules/mocha/bin/mocha -r ts-node/register ./tests/index.ts",
@@ -55,7 +55,7 @@
     "test:integration": "karma start $PWD/karma.conf.ts",
     "test:network": "node ./scripts/karma.js $PWD/karma.network.conf.ts",
     "test:selenium": "mocha tests/browser/index.js",
-    "test:typecheck": "./node_modules/typescript/bin/tsc tests/typecheck/index.ts --noEmit",
+    "test:typecheck": "tsc tests/typecheck/index.ts --noEmit",
     "test:unit": "nyc mocha -r ts-node/register ./tests/index.ts",
     "test:webpack": "cd ./tests/webpack && npm install && npm test"
   },
