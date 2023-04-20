@@ -517,6 +517,7 @@ class Call extends EventEmitter {
 
     this._mediaHandler.onclose = () => {
       this._status = Call.State.Closed;
+      this.emit('status', Call.CallStatus.Closed);
       if (this._options.shouldPlayDisconnect && this._options.shouldPlayDisconnect()
         // Don't play disconnect sound if this was from a cancel event. i.e. the call
         // was ignored or hung up even before it was answered.
@@ -592,6 +593,7 @@ class Call extends EventEmitter {
     const audioConstraints = rtcConstraints.audio || { audio: true };
 
     this._status = Call.State.Connecting;
+    this.emit('status', Call.CallStatus.Connecting);
 
     const connect = () => {
       if (this._status !== Call.State.Connecting) {
@@ -722,6 +724,7 @@ class Call extends EventEmitter {
     }
 
     this._status = Call.State.Closed;
+    this.emit('status', Call.CallStatus.Closed);
     this._mediaHandler.ignore(this.parameters.CallSid);
     this._publisher.info('connection', 'ignored-by-local', null, this);
 
@@ -798,6 +801,8 @@ class Call extends EventEmitter {
     this._mediaHandler.close();
     this._status = Call.State.Closed;
     this.emit('reject');
+    this.emit('status', Call.CallStatus.Rejected);
+    this.emit('status', Call.CallStatus.Closed);
   }
 
   /**
@@ -1098,6 +1103,7 @@ class Call extends EventEmitter {
           this._wasConnected = true;
           this.emit('accept', this);
         }
+        this.emit('status', Call.CallStatus.Connected);
       }
     }
   }
@@ -1137,6 +1143,7 @@ class Call extends EventEmitter {
     this._setCallSid(payload);
     this._isAnswered = true;
     this._maybeTransitionToOpen();
+    this.emit('status', Call.CallStatus.Answer);
   }
 
   /**
@@ -1153,6 +1160,7 @@ class Call extends EventEmitter {
       this._mediaHandler.close();
 
       this._status = Call.State.Closed;
+      this.emit('status', Call.CallStatus.Closed);
       this.emit('cancel');
       this._pstream.removeListener('cancel', this._onCancel);
     }
@@ -1275,6 +1283,7 @@ class Call extends EventEmitter {
 
       this._mediaReconnectStartTime = Date.now();
       this._status = Call.State.Reconnecting;
+      this.emit('status', Call.CallStatus.Reconnecting);
       this._mediaStatus = Call.State.Reconnecting;
       this._mediaReconnectBackoff.reset();
       this._mediaReconnectBackoff.backoff();
@@ -1299,6 +1308,7 @@ class Call extends EventEmitter {
       this._publisher.info('connection', 'reconnected', null, this);
       this.emit('reconnected');
       this._status = Call.State.Open;
+      this.emit('status', Call.CallStatus.Reconnected);
     }
   }
 
@@ -1352,6 +1362,7 @@ class Call extends EventEmitter {
 
     const hasEarlyMedia = !!payload.sdp;
     this._status = Call.State.Ringing;
+    this.emit('status', Call.CallStatus.Ringing);
     this._publisher.info('connection', 'outgoing-ringing', { hasEarlyMedia }, this);
     this.emit('ringing', hasEarlyMedia);
   }
@@ -1409,6 +1420,7 @@ class Call extends EventEmitter {
       this._publisher.info('connection', 'reconnected', null, this);
       this.emit('reconnected');
       this._status = Call.State.Open;
+      this.emit('status', Call.CallStatus.Reconnected);
     }
   }
 
@@ -1421,10 +1433,12 @@ class Call extends EventEmitter {
     this.emit('transportClose');
     if (this._signalingReconnectToken) {
       this._status = Call.State.Reconnecting;
+      this.emit('status', Call.CallStatus.Reconnecting);
       this._signalingStatus = Call.State.Reconnecting;
       this.emit('reconnecting', new SignalingErrors.ConnectionDisconnected());
     } else {
       this._status = Call.State.Closed;
+      this.emit('status', Call.CallStatus.Closed);
       this._signalingStatus = Call.State.Closed;
     }
   }
@@ -1612,6 +1626,17 @@ namespace Call {
     Pending = 'pending',
     Reconnecting = 'reconnecting',
     Ringing = 'ringing',
+  }
+
+  export enum CallStatus {
+    Closed = 'closed',
+    Connecting = 'connecting',
+    Connected = 'connected',
+    Reconnecting = 'reconnecting',
+    Reconnected = 'reconnected',
+    Ringing = 'ringing',
+    Rejected = 'rejected',
+    Answer = 'answer',
   }
 
   /**
