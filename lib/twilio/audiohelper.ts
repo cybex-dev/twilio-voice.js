@@ -97,6 +97,7 @@ class AudioHelper extends EventEmitter {
     [Device.SoundName.Disconnect]: true,
     [Device.SoundName.Incoming]: true,
     [Device.SoundName.Outgoing]: true,
+    [Device.SoundName.Holding]: true,
   };
 
   /**
@@ -300,6 +301,16 @@ class AudioHelper extends EventEmitter {
    */
   disconnect(doEnable?: boolean): boolean {
     return this._maybeEnableSound(Device.SoundName.Disconnect, doEnable);
+  }
+
+  /**
+   * Enable or disable the hold sound.
+   * @param doEnable Passing `true` will enable the sound and `false` will disable the sound.
+   * Not passing this parameter will not alter the enable-status of the sound.
+   * @returns The enable-status of the sound.
+   */
+  holding(doEnable?: boolean): boolean {
+    return this._maybeEnableSound(Device.SoundName.Holding, doEnable);
   }
 
   /**
