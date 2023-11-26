@@ -589,8 +589,9 @@ class Call extends EventEmitter {
   /**
    * Accept the incoming {@link Call}.
    * @param [options]
+   * @param [answerOnHold] - Determines if the call should be answered on hold or not, if false the call's audio streams will not connect.
    */
-  accept(options?: Call.AcceptOptions): void {
+  accept(options?: Call.AcceptOptions, answerOnHold?: boolean): void {
     if (this._status !== Call.State.Pending) {
       return;
     }
