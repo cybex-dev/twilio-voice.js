@@ -1460,6 +1460,7 @@ class Device extends EventEmitter {
     }).then(() => {
       clearTimeout(timeout);
       this.emit(Device.EventName.Incoming, call);
+      call.emit('status', Call.State.Ringing);
     });
   }
 
