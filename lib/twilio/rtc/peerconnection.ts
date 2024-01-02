@@ -132,6 +132,15 @@ PeerConnection.prototype.setInputTracksFromStream = function(stream) {
   });
 };
 
+/**
+ * Clears an audio input stream
+ */
+PeerConnection.prototype.clearInputStream = function() {
+  return this._sender.replaceTrack(null).then(() => {
+    self._shouldManageStream = false;
+  });
+};
+
 PeerConnection.prototype._createAnalyser = (audioContext, options) => {
   options = Object.assign({
     fftSize: 32,
@@ -210,7 +219,9 @@ PeerConnection.prototype._startPollingVolume = function() {
 PeerConnection.prototype._stopStream = function _stopStream() {
   // We shouldn't stop the tracks if they were not created inside
   //   this PeerConnection.
+  console.log(`_stopStream`);
   if (!this._shouldManageStream) {
+    console.log(`_stopStream, not managing stream`);
     return;
   }
 
@@ -223,7 +234,9 @@ PeerConnection.prototype._stopStream = function _stopStream() {
  * @private
  */
 PeerConnection.prototype._updateInputStreamSource = function(stream) {
+  console.log(`_updateInputStreamSource ${stream}`);
   if (this._inputStreamSource) {
+    console.log(`_updateInputStreamSource disconnecting input audio`);
     this._inputStreamSource.disconnect();
   }
 
@@ -243,7 +256,9 @@ PeerConnection.prototype._updateInputStreamSource = function(stream) {
  * @private
  */
 PeerConnection.prototype._updateOutputStreamSource = function(stream) {
+  console.log(`_updateOutputStreamSource ${stream}`);
   if (this._outputStreamSource) {
+    console.log(`Disconnecting output audio stream.`)
     this._outputStreamSource.disconnect();
   }
 
@@ -337,11 +352,14 @@ PeerConnection.prototype._setInputTracksForPlanB = function(shouldClone, newStre
  * @private
  */
 PeerConnection.prototype._setInputTracksForUnifiedPlan = function(shouldClone, newStream) {
+  console.log(`_setInputTracksForUnifiedPlan`);
   if (!newStream) {
+    console.log(`_setInputTracksForUnifiedPlan no newStream, rejecting`);
     return Promise.reject(new InvalidArgumentError('Can not set input stream to null while in a call'));
   }
 
   if (!newStream.getAudioTracks().length) {
+    console.log(`_setInputTracksForUnifiedPlan empty newStream, rejecting`);
     return Promise.reject(new InvalidArgumentError('Supplied input stream has no audio tracks'));
   }
 
@@ -355,11 +373,14 @@ PeerConnection.prototype._setInputTracksForUnifiedPlan = function(shouldClone, n
   if (!localStream) {
     // We can't use MediaStream.clone() here because it stopped copying over tracks
     //   as of Chrome 61. https://bugs.chromium.org/p/chromium/issues/detail?id=770908
+    console.log(`_setInputTracksForUnifiedPlan empty local stream, using new stream`);
     this.stream = shouldClone ? cloneStream(newStream) : newStream;
   } else {
     // If the call was started with gUM, and we are now replacing that track with an
     // external stream's tracks, we should stop the old managed track.
+    console.log(`_setInputTracksForUnifiedPlan using local stream`);
     if (this._shouldManageStream) {
+      console.log(`_setInputTracksForUnifiedPlan stop managed stream`);
       this._stopStream();
     }
 
@@ -367,7 +388,9 @@ PeerConnection.prototype._setInputTracksForUnifiedPlan = function(shouldClone, n
       this._sender = this.version.pc.getSenders()[0];
     }
 
+    console.log(`_setInputTracksForUnifiedPlan setting audio tracks`);
     return this._sender.replaceTrack(newStream.getAudioTracks()[0]).then(() => {
+      console.log(`_setInputTracksForUnifiedPlan audio tracks replaced`);
       this._updateInputStreamSource(newStream);
       this.stream = shouldClone ? cloneStream(newStream) : newStream;
       return getStreamPromise();
@@ -435,11 +458,14 @@ PeerConnection.prototype._onMediaConnectionStateChange = function(newState) {
 };
 
 PeerConnection.prototype._setSinkIds = function(sinkIds) {
+  console.log(`_setSinkIds ${sinkIds || []}`)
   if (!this._isSinkSupported) {
+    console.log("Sink not supported, rejecting.")
     return Promise.reject(new NotSupportedError('Audio output selection is not supported by this browser'));
   }
 
   this.sinkIds = new Set(sinkIds.forEach ? sinkIds : [sinkIds]);
+  console.log(`Using sinkIds: ${this.sinkIds}`);
   return this.version
     ? this._updateAudioOutputs()
     : Promise.resolve();
@@ -463,6 +489,7 @@ PeerConnection.prototype._stopIceGatheringTimeout = function stopIceGatheringTim
 };
 
 PeerConnection.prototype._updateAudioOutputs = function updateAudioOutputs() {
+  console.log("_updateAudioOutputs: Updating audio output devices");
   const addedOutputIds = Array.from(this.sinkIds).filter(function(id) {
     return !this.outputs.has(id);
   }, this);
@@ -1011,16 +1038,22 @@ PeerConnection.prototype.ignore = function(callSid) {
  */
 PeerConnection.prototype.mute = function(shouldMute) {
   this.isMuted = shouldMute;
-  if (!this.stream) { return; }
+  if (!this.stream) {
+    console.log(`mute: stream is null, returning`);
+    return;
+  }
 
   if (this._sender && this._sender.track) {
+    console.log(`mute: single ${this._sender.track} track enabled: ${!shouldMute}`);
     this._sender.track.enabled = !shouldMute;
   } else {
+    console.log(`mute: sender or track null, get audio tracks`);
     const audioTracks = typeof this.stream.getAudioTracks === 'function'
       ? this.stream.getAudioTracks()
       : this.stream.audioTracks;
 
     audioTracks.forEach(track => {
+      console.log(`mute: ${track} track enabled: ${!shouldMute}`);
       track.enabled = !shouldMute;
     });
   }

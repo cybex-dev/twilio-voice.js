@@ -101,6 +101,7 @@ class AudioHelper extends EventEmitter {
    * This is populated when _openDefaultDeviceWithConstraints is called,
    * See _selectedInputDeviceStream for differences.
    * TODO: Combine these two workflows (3.x?)
+   * NOTE(cybex-dev) take note of this
    */
   private _defaultInputDeviceStream: MediaStream | null = null;
 
@@ -111,6 +112,7 @@ class AudioHelper extends EventEmitter {
     [Device.SoundName.Disconnect]: true,
     [Device.SoundName.Incoming]: true,
     [Device.SoundName.Outgoing]: true,
+    [Device.SoundName.Holding]: true,
   };
 
   /**
@@ -176,6 +178,11 @@ class AudioHelper extends EventEmitter {
    * TODO: Combine these two workflows (3.x?)
    */
   private _selectedInputDeviceStream: MediaStream | null = null;
+
+  /**
+   * The call on hold media stream coming from a file-based audio source.
+   */
+  private _callOnHoldInputStream: MediaStream | null = null;
 
   /**
    * A record of unknown devices (Devices without labels)
@@ -336,8 +343,10 @@ class AudioHelper extends EventEmitter {
    * @private
    */
   _openDefaultDeviceWithConstraints(constraints: MediaStreamConstraints): Promise<MediaStream> {
+    console.log(`opening default device with constraints`);
     this._log.debug('Opening default device with constraints', constraints);
     return this._getUserMedia(constraints).then((stream: MediaStream) => {
+      console.log(`_getUserMedia Stream (${stream})`);
 
       this._log.debug('Opened default device. Updating available devices.');
       // Ensures deviceId's and labels are populated after the gUM call
@@ -346,6 +355,7 @@ class AudioHelper extends EventEmitter {
         // Ignore error, we don't want to break the call flow
         this._log.warn('Unable to updateAvailableDevices after gUM call', error);
       });
+      console.log(`Default Input Stream ${stream}`);
       this._defaultInputDeviceStream = stream;
       return this._maybeCreateProcessedStream(stream);
     });
@@ -357,6 +367,7 @@ class AudioHelper extends EventEmitter {
    */
   _stopDefaultInputDeviceStream(): void {
     if (this._defaultInputDeviceStream) {
+      console.log(`stopping default input device`);
       this._log.debug('stopping default device stream');
       this._defaultInputDeviceStream.getTracks().forEach(track => track.stop());
       this._defaultInputDeviceStream = null;
@@ -383,11 +394,14 @@ class AudioHelper extends EventEmitter {
    * @private
    */
   _updateAvailableDevices = (): Promise<void> => {
+    console.log(`_updateAvailableDevices`);
     if (!this._mediaDevices || !this._enumerateDevices) {
+      console.log(`_updateAvailableDevices not supported`);
       return Promise.reject('Enumeration not supported');
     }
 
     return this._enumerateDevices().then((devices: MediaDeviceInfo[]) => {
+      console.log(`_updateAvailableDevices found ${devices.length} devices`);
       this._updateDevices(devices.filter((d: MediaDeviceInfo) => d.kind === 'audiooutput'),
         this.availableOutputDevices,
         this._removeLostOutput);
@@ -462,6 +476,16 @@ class AudioHelper extends EventEmitter {
    */
   disconnect(doEnable?: boolean): boolean {
     return this._maybeEnableSound(Device.SoundName.Disconnect, doEnable);
+  }
+
+  /**
+   * Enable or disable the hold sound.
+   * @param doEnable Passing `true` will enable the sound and `false` will disable the sound.
+   * Not passing this parameter will not alter the enable-status of the sound.
+   * @returns The enable-status of the sound.
+   */
+  holding(doEnable?: boolean): boolean {
+    return this._maybeEnableSound(Device.SoundName.Holding, doEnable);
   }
 
   /**
@@ -620,6 +644,7 @@ class AudioHelper extends EventEmitter {
    */
   private _maybeCreateProcessedStream(stream: MediaStream): Promise<MediaStream> {
     if (this._processor) {
+      console.log(`Create Processed Audio Stream ${stream}`);
       this._log.debug('Creating processed stream');
       return this._processor.createProcessedStream(stream).then((processedStream: MediaStream) => {
         this._processedStream = processedStream;
@@ -691,6 +716,20 @@ class AudioHelper extends EventEmitter {
     }
 
     this._selectedInputDeviceStream = stream;
+  }
+
+  /**
+   * Stop the tracks on the current call on hold input stream before replacing it with the passed stream.
+   * @param stream - The new stream
+   */
+  private _updateHoldStream(stream: MediaStream | null): void {
+    this._log.debug('Replacing with new stream.');
+    if (this._callOnHoldInputStream) {
+      this._log.debug('Old stream detected. Stopping tracks.');
+      this._stopCallOnHoldInputStream();
+    }
+
+    this._callOnHoldInputStream = stream;
   }
 
   /**
@@ -770,6 +809,16 @@ class AudioHelper extends EventEmitter {
     if (this._selectedInputDeviceStream) {
       this._log.debug('Stopping selected device stream');
       this._selectedInputDeviceStream.getTracks().forEach(track => track.stop());
+    }
+  }
+
+  /**
+   * Stop the selected audio stream
+   */
+  private _stopCallOnHoldInputStream(): void {
+    if (this._callOnHoldInputStream) {
+      this._log.debug('Stopping call on hold stream');
+      this._callOnHoldInputStream.getTracks().forEach(track => track.stop());
     }
   }
 

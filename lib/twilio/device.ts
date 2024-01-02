@@ -111,7 +111,7 @@ export interface IExtendedDeviceOptions extends Device.Options {
   /**
    * MediaStream constructor.
    */
-  MediaStream?: typeof MediaStream;
+  // MediaStream?: typeof MediaStream;
 
   /**
    * Whether this is a preflight call or not
@@ -168,6 +168,10 @@ export interface ISoundDefinition {
    * Whether or not this sound should loop after playthrough finishes.
    */
   shouldLoop?: boolean;
+}
+
+export interface ISoundUrlDefinition extends ISoundDefinition {
+  url: string;
 }
 
 /**
@@ -246,7 +250,7 @@ class Device extends EventEmitter {
    */
   private static _audioContext?: AudioContext;
 
-  private static _defaultSounds: Record<string, ISoundDefinition> = {
+  private static _defaultSounds: Record<string, ISoundDefinition | ISoundUrlDefinition> = {
     disconnect: { filename: 'disconnect', maxDuration: 3000 },
     dtmf0: { filename: 'dtmf-0', maxDuration: 1000 },
     dtmf1: { filename: 'dtmf-1', maxDuration: 1000 },
@@ -260,6 +264,8 @@ class Device extends EventEmitter {
     dtmf9: { filename: 'dtmf-9', maxDuration: 1000 },
     dtmfh: { filename: 'dtmf-hash', maxDuration: 1000 },
     dtmfs: { filename: 'dtmf-star', maxDuration: 1000 },
+    // tslint:disable-next-line:max-line-length
+    holding: { filename: 'holding', shouldLoop: true, url: 'https://firebasestorage.googleapis.com/v0/b/twilio-voice-web.appspot.com/o/hold1.mp3?alt=media&token=370d1646-bea6-4a0b-a897-48b1c169b7af' },
     incoming: { filename: 'incoming', shouldLoop: true },
     outgoing: { filename: 'outgoing', maxDuration: 3000 },
   };
@@ -563,15 +569,15 @@ class Device extends EventEmitter {
     const activeCall = this._activeCall = await this._makeCall(
       options.params || { },
       {
-        enableImprovedSignalingErrorPrecision:
-          !!this._options.enableImprovedSignalingErrorPrecision,
+        enableImprovedSignalingErrorPrecision: !!this._options.enableImprovedSignalingErrorPrecision,
         rtcConfiguration: options.rtcConfiguration,
         voiceEventSidGenerator: this._options.voiceEventSidGenerator,
       },
     );
 
     // Make sure any incoming calls are ignored
-    this._calls.splice(0).forEach(call => call.ignore());
+    // NOTE(cybex-dev) Take note of this
+    this._calls.splice(0).forEach(call => call.hold());
 
     // Stop the incoming sound if it's playing
     this._soundcache.get(Device.SoundName.Incoming).stop();
@@ -775,10 +781,11 @@ class Device extends EventEmitter {
     }
 
     for (const name of Object.keys(Device._defaultSounds)) {
-      const soundDef: ISoundDefinition = Device._defaultSounds[name];
+      const soundDef: ISoundDefinition | ISoundUrlDefinition = Device._defaultSounds[name];
 
-      const defaultUrl: string = `${C.SOUNDS_BASE_URL}/${soundDef.filename}.${Device.extension}`
-        + `?cache=${C.RELEASE_VERSION}`;
+      const defaultUrl: string = 'url' in soundDef
+          ? soundDef.url
+          : `${C.SOUNDS_BASE_URL}/${soundDef.filename}.${Device.extension}` + `?cache=${C.RELEASE_VERSION}`;
 
       const soundUrl: string = this._options.sounds && this._options.sounds[name as Device.SoundName] || defaultUrl;
       const sound: any = new (this._options.Sound || Sound)(name, soundUrl, {
@@ -956,7 +963,7 @@ class Device extends EventEmitter {
     };
 
     options = Object.assign({
-      MediaStream: this._options.MediaStream || rtc.PeerConnection,
+      // MediaStream: this._options.MediaStream || rtc.PeerConnection,
       RTCPeerConnection: this._options.RTCPeerConnection,
       beforeAccept: (currentCall: Call) => {
         if (!this._activeCall || this._activeCall === currentCall) {
@@ -1194,6 +1201,7 @@ class Device extends EventEmitter {
    * Called when an 'invite' event is received from the signaling stream.
    */
   private _onSignalingInvite = async (payload: Record<string, any>) => {
+    // NOTE(cybex-dev) with allowIncomingWhileBusy we can receive multiple invites and have a concurrent call with 2 or more participants
     const wasBusy = !!this._activeCall;
     if (wasBusy && !this._options.allowIncomingWhileBusy) {
       this._log.info('Device busy; ignoring incoming invite');
@@ -1229,7 +1237,14 @@ class Device extends EventEmitter {
       this._publishNetworkChange();
     });
 
-    const play = (this._audio?.incoming() && !wasBusy)
+    // NOTE(cybex-dev) listen to hold events
+    call.once('hold', () => {
+      this._soundcache.get(Device.SoundName.Incoming).stop();
+      this._publishNetworkChange();
+    });
+
+    // NOTE(cybex-dev) use soundCache to prepare call holding music
+    const play = (this.audio?.incoming() && !wasBusy)
       ? () => this._soundcache.get(Device.SoundName.Incoming).play()
       : () => Promise.resolve();
 
@@ -1523,7 +1538,8 @@ class Device extends EventEmitter {
    * @param type - Whether to update ringtone or speaker sounds
    * @param sinkIds - An array of device IDs
    */
-  private _updateSinkIds = (type: 'ringtone' | 'speaker', sinkIds: string[]): Promise<void> => {
+  private _updateSinkIds = (type: 'ringtone' | 'speaker' | 'hold', sinkIds: string[]): Promise<void> => {
+    // NOTE(cybex-dev) we need to use a separate audio track to play the call holding music
     const promise: Promise<void> = type === 'ringtone'
       ? this._updateRingtoneSinkIds(sinkIds)
       : this._updateSpeakerSinkIds(sinkIds);
@@ -1644,6 +1660,7 @@ namespace Device {
    * Names of all sounds handled by the {@link Device}.
    */
   export enum SoundName {
+    Holding = 'holding',
     Incoming = 'incoming',
     Outgoing = 'outgoing',
     Disconnect = 'disconnect',
@@ -1664,7 +1681,7 @@ namespace Device {
   /**
    * Names of all togglable sounds.
    */
-  export type ToggleableSound = Device.SoundName.Incoming | Device.SoundName.Outgoing | Device.SoundName.Disconnect;
+  export type ToggleableSound = Device.SoundName.Incoming | Device.SoundName.Outgoing | Device.SoundName.Disconnect | Device.SoundName.Holding;
 
   /**
    * Options to be passed to {@link Device.connect}.
@@ -1674,6 +1691,7 @@ namespace Device {
      * A flat object containing key:value pairs to be sent to the TwiML app.
      */
     params?: Record<string, string>;
+    holdActive?: boolean;
   }
 
   /**

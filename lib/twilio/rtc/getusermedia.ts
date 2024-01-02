@@ -23,8 +23,8 @@ function getUserMedia(constraints, options) {
         return resolve(options.navigator.mediaDevices.getUserMedia(constraints));
       case typeof options.navigator.webkitGetUserMedia:
         return options.navigator.webkitGetUserMedia(constraints, resolve, reject);
-      case typeof options.navigator.mozGetUserMedia:
-        return options.navigator.mozGetUserMedia(constraints, resolve, reject);
+      // case typeof options.navigator.mozGetUserMedia:
+      //   return options.navigator.mozGetUserMedia(constraints, resolve, reject);
       case typeof options.navigator.getUserMedia:
         return options.navigator.getUserMedia(constraints, resolve, reject);
       default:

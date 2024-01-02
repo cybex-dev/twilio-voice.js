@@ -123,6 +123,7 @@ class Call extends EventEmitter {
    * The custom parameters sent to (outgoing) or received by (incoming) the TwiML app.
    */
   readonly customParameters: Map<string, string>;
+    private _holding: boolean;
 
   /**
    * Whether this {@link Call} is incoming or outgoing.
@@ -313,6 +314,7 @@ class Call extends EventEmitter {
   constructor(config: Call.Config, options?: Call.Options) {
     super();
 
+        this._holding = false;
     this._isUnifiedPlanDefault = config.isUnifiedPlanDefault;
     this._soundcache = config.soundcache;
 
@@ -589,8 +591,9 @@ class Call extends EventEmitter {
   /**
    * Accept the incoming {@link Call}.
    * @param [options]
+   * @param [answerOnHold] - Determines if the call should be answered on hold or not, if false the call's audio streams will not connect.
    */
-  accept(options?: Call.AcceptOptions): void {
+  accept(options?: Call.AcceptOptions, answerOnHold?: boolean): void {
     if (this._status !== Call.State.Pending) {
       return;
     }
@@ -633,14 +636,7 @@ class Call extends EventEmitter {
         this._monitor.enable(pc);
       };
 
-      const sinkIds = typeof this._options.getSinkIds === 'function' && this._options.getSinkIds();
-      if (Array.isArray(sinkIds)) {
-        this._mediaHandler._setSinkIds(sinkIds).catch(() => {
-          // (rrowland) We don't want this to throw to console since the customer
-          // can't control this. This will most commonly be rejected on browsers
-          // that don't support setting sink IDs.
-        });
-      }
+    this._attachAudioOutputStreams();
 
       this._pstream.addListener('hangup', this._onHangup);
 
@@ -662,44 +658,95 @@ class Call extends EventEmitter {
       this._options.beforeAccept(this);
     }
 
-    const inputStream = typeof this._options.getInputStream === 'function' && this._options.getInputStream();
-
-    const promise = inputStream
-      ? this._mediaHandler.setInputTracksFromStream(inputStream)
-      : this._mediaHandler.openDefaultDeviceWithConstraints(audioConstraints);
-
-    promise.then(() => {
-      this._publisher.info('get-user-media', 'succeeded', {
-        data: { audioConstraints },
-      }, this);
-
-      connect();
-    }, (error: Record<string, any>) => {
-      let twilioError;
-
-      if (error.code === 31208
-        || ['PermissionDeniedError', 'NotAllowedError'].indexOf(error.name) !== -1) {
-        twilioError = new UserMediaErrors.PermissionDeniedError();
-        this._publisher.error('get-user-media', 'denied', {
-          data: {
-            audioConstraints,
-            error,
-          },
+    const onAudioInputSuccess = () => {
+        this._publisher.info('get-user-media', 'succeeded', {
+            data: {audioConstraints},
         }, this);
-      } else {
-        twilioError = new UserMediaErrors.AcquisitionFailedError();
+        connect();
+    }
+    const onAudioInputError = (error: Record<string, any>) => {
+        let twilioError;
 
-        this._publisher.error('get-user-media', 'failed', {
-          data: {
-            audioConstraints,
-            error,
-          },
-        }, this);
+        if (error.code === 31208
+            || ['PermissionDeniedError', 'NotAllowedError'].indexOf(error.name) !== -1) {
+            twilioError = new UserMediaErrors.PermissionDeniedError();
+            this._publisher.error('get-user-media', 'denied', {
+                data: {
+                    audioConstraints,
+                    error,
+                },
+            }, this);
+        } else {
+            twilioError = new UserMediaErrors.AcquisitionFailedError();
+
+            this._publisher.error('get-user-media', 'failed', {
+                data: {
+                    audioConstraints,
+                    error,
+                },
+            }, this);
+        }
+
+        this._disconnect();
+        this.emit('error', twilioError);
+    }
+    const _attach = answerOnHold || true;
+    this._attachAudioInputStreams(audioConstraints, _attach, onAudioInputSuccess, onAudioInputError);
+  }
+
+  hold(shouldHold: boolean = true): boolean {
+      this._holding = shouldHold;
+      this._attachAudioInputStreams(true, !shouldHold);
+      this._attachAudioOutputStreams(!shouldHold);
+      return this._holding;
+  }
+
+  get isHolding(): boolean {
+      return this._holding;
+  }
+
+  _attachAudioOutputStreams(attach: boolean = true): void {
+    console.log("_attachAudioOutputStreams Attach audio input streams");
+    if(attach) {
+      // find all calls that are active, set them on hold and attach audio stream via sinks to this one.
+      const sinkIds = typeof this._options.getSinkIds === 'function' && this._options.getSinkIds();
+      if (Array.isArray(sinkIds)) {
+        this._mediaHandler._setSinkIds(sinkIds).catch(() => {
+          // (rrowland) We don't want this to throw to console since the customer
+          // can't control this. This will most commonly be rejected on browsers
+          // that don't support setting sink IDs.
+        });
+      }
+    } else {
+      this._mediaHandler._setSinkIds([]).catch(() => {});
+    }
+  }
+
+  _attachAudioInputStreams(audioConstraints: MediaTrackConstraints | { audio: boolean } | boolean, attach?: boolean, onSuccess?: any, onFailure?: Record<string, any>): void {
+      console.log("_attachAudioInputStreams Attach audio input streams");
+      if(!attach) {
+        this._mediaHandler.clearInputStream();
+        if(typeof onSuccess === "function") {
+          onSuccess();
+        }
+        return;
       }
 
-      this._disconnect();
-      this.emit('error', twilioError);
-    });
+      const inputStream = typeof this._options.getInputStream === 'function' && this._options.getInputStream();
+
+      const promise = inputStream
+          ? this._mediaHandler.setInputTracksFromStream(inputStream)
+          : this._mediaHandler.openDefaultDeviceWithConstraints(audioConstraints);
+
+      promise.then(() => {
+        if(typeof onSuccess === "function") {
+          onSuccess();
+        }
+      }, (e: Record<string, any>) => {
+        if(typeof onFailure === "function") {
+          onFailure(e);
+        }
+      });
   }
 
   /**
